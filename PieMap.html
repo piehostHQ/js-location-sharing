@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Geolocation</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.8.0/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+
+    <script src="https://unpkg.com/piesocket-js@5"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map" style="width:100%; height: 100vh"></div>
+    <script src="https://unpkg.com/leaflet@1.8.0/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+    <script>
+        var piesocket = new PieSocket.default({
+            clusterId: "free.blr2",
+            apiKey: "B9UKgvptNTWrZxfCUTquFp7nKVsYqu2LtmBao5Jg",
+            notifySelf: true,
+            presence: true,
+        });
+
+        var channel;
+
+        var userMarker, newMarker, routingControl;
+
+        function initMap(lat, lng) {    
+
+            map = L.map('map').setView([lat, lng], 11);
+            mapLink = "<a href='http://openstreetmap.org'>OpenStreetMap</a>";
+            L.tileLayer('http://{s}.tile.osm.org/{z}/{x}/{y}.png', { attribution: 'Leaflet © ' + mapLink + ', contribution', maxZoom: 18 }).addTo(map);
+            userMarker = L.marker([lat, lng]).addTo(map);
+        }
+        navigator.geolocation.getCurrentPosition(function (position) {
+            initMap(position.coords.latitude, position.coords.longitude);
+
+            map.on('click', function (e) {
+                if (newMarker) {
+                    newMarker.setLatLng([e.latlng.lat, e.latlng.lng]);
+                } else {
+                    newMarker = L.marker([e.latlng.lat, e.latlng.lng]).addTo(map);
+                }
+                if (routingControl) {
+                    map.removeControl(routingControl);
+                }
+                routingControl = L.Routing.control({
+                    waypoints: [
+                        L.latLng(userMarker.getLatLng().lat, userMarker.getLatLng().lng),
+                        L.latLng(newMarker.getLatLng().lat, newMarker.getLatLng().lng)
+                    ]
+                }).addTo(map);
+
+                console.log(userMarker._latlng, newMarker._latlng, routingControl);
+
+            });
+
+
+            piesocket.subscribe("chat-room").then(ch => {
+                channel = ch;
+                console.log("Channel is ready");
+
+                broadcastVote = (userMarker, newMarker) => {
+                    channel.publish("route", JSON.stringify({ userMarker: userMarker._latlng, newMarker: newMarker._latlng, }));
+                };
+
+                if (navigator.geolocation) {
+                    navigator.geolocation.watchPosition(function (position) {
+                        var latitude = position.coords.latitude;
+                        var longitude = position.coords.longitude;
+                        console.log("Latitude: " + latitude + ", Longitude: " + longitude);
+                        channel.publish("updateUserMarker", JSON.stringify({ latitude: latitude, longitude: longitude }));
+
+                    }, function (error) {
+                        console.error("Error occurred: " + error.message);
+                    });
+                } else {
+                    console.log("Geolocation is not supported by this browser.");
+                }
+
+                channel.listen("updateUserMarker", (data) => {
+                    const location = JSON.parse(data);
+                    if (userMarker) {
+                        userMarker.setLatLng([location.latitude, location.longitude]);
+                    } else {
+                        userMarker = L.marker([location.latitude, location.longitude]).addTo(map);
+                    }
+                    console.log(userMarker);
+                });
+               
+            channel.listen("route", (data) => {
+
+                const lagLng = JSON.parse(data);
+
+                userMarker.setLatLng([lagLng.userMarker.lat, lagLng.userMarker.lng]);
+                newMarker.setLatLng([lagLng.newMarker.lat, lagLng.newMarker.lng]);
+                if (routingControl) {
+                    routingControl.getPlan().setWaypoints([
+                        L.latlng([lagLng.userMarker.lat, lagLng.userMarker.lng]),
+                        L.latlng([lagLng.newMarker.lat, lagLng.newMarker.lng]),
+                    ])
+                }
+
+            });
+        });
+        });
+
+    </script>
+</body>
+
+</html>
